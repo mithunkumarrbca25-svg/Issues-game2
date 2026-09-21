@@ -28,8 +28,8 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            const gameIssues = { 1: 1, 2: 2, 3: 3 };
-            const issueToGame = { 1: 1, 2: 2, 3: 3 };
+            const gameIssues = { 1: 4, 2: 5, 3: 6 };
+            const issueToGame = { 4: 1, 5: 2, 6: 3 };
 
             if (!body.toLowerCase().startsWith('/answer ')) return;
             if (!issueToGame[issue.number]) return;
