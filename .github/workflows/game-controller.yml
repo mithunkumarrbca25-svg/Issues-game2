@@ -25,6 +25,7 @@ jobs:
             const issue = context.payload.issue;
             const body = context.payload.comment.body.trim();
             const author = context.payload.comment.user.login;
+            const commentId = context.payload.comment.id;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
@@ -49,6 +50,21 @@ jobs:
             }
 
             const game = issueToGame[issue.number];
+
+            // Delete only the participant's submission.
+            // This is called BEFORE creating any bot response.
+            async function deleteSubmission() {
+              try {
+                await github.rest.issues.deleteComment({
+                  owner,
+                  repo,
+                  comment_id: commentId
+                });
+              } catch (error) {
+                console.log('Could not delete participant comment:', error.message);
+              }
+            }
+
             const answers = {
               1: process.env.GAME1_ANSWER,
               2: process.env.GAME2_ANSWER,
@@ -56,6 +72,7 @@ jobs:
             };
 
             if (!answers[game]) {
+              await deleteSubmission();
               await github.rest.issues.createComment({
                 owner, repo, issue_number: issue.number,
                 body: '⚠️ This game is not configured yet. Please contact the organizer.'
@@ -64,6 +81,7 @@ jobs:
             }
 
             if (game === 2 && !(await hasPass(1, author))) {
+              await deleteSubmission();
               await github.rest.issues.createComment({
                 owner, repo, issue_number: issue.number,
                 body: '🔒 Game 2 is locked. Complete Game 1 successfully first.'
@@ -72,6 +90,7 @@ jobs:
             }
 
             if (game === 3 && !(await hasPass(2, author))) {
+              await deleteSubmission();
               await github.rest.issues.createComment({
                 owner, repo, issue_number: issue.number,
                 body: '🔒 Game 3 is locked. Complete Game 2 successfully first.'
@@ -85,6 +104,7 @@ jobs:
             if (game === 3) {
               const commitLine = body.split(/\r?\n/).find(line => /^commit\s*:/i.test(line));
               if (!commitLine) {
+                await deleteSubmission();
                 await github.rest.issues.createComment({
                   owner, repo, issue_number: issue.number,
                   body: '❌ Please include a valid line in this format:\n\nCommit: <link to your commit>'
@@ -94,6 +114,7 @@ jobs:
 
               const match = commitLine.match(/https:\/\/github\.com\/([^/]+)\/([^/]+)\/commit\/([0-9a-f]{7,40})/i);
               if (!match) {
+                await deleteSubmission();
                 await github.rest.issues.createComment({
                   owner, repo, issue_number: issue.number,
                   body: '❌ The commit link is not valid. Please submit a GitHub commit URL.'
@@ -113,6 +134,7 @@ jobs:
                   ref: submittedSha
                 });
               } catch (error) {
+                await deleteSubmission();
                 await github.rest.issues.createComment({
                   owner, repo, issue_number: issue.number,
                   body: '❌ I could not access that commit. Make sure the repository is public and the link is correct.'
@@ -122,6 +144,7 @@ jobs:
 
               const file = (commit.data.files || []).find(f => f.filename === 'final-answer.txt');
               if (!file) {
+                await deleteSubmission();
                 await github.rest.issues.createComment({
                   owner, repo, issue_number: issue.number,
                   body: '❌ The linked commit does not contain `final-answer.txt`.'
@@ -131,6 +154,7 @@ jobs:
             }
 
             if (supplied !== expected) {
+              await deleteSubmission();
               await github.rest.issues.createComment({
                 owner, repo, issue_number: issue.number,
                 body: '❌ Not quite, @' + author + '. Please try again.'
@@ -140,9 +164,13 @@ jobs:
 
             const marker = '<!-- ISSUES-GAME2-PASS game=' + game + ' user=' + author + ' -->';
             const next = game < 3
-              ? '\n\n🔓 Game ' + (game + 1) + ' is now unlocked for you: https://github.com/' + owner + '/' + repo + '/issues/' + gameIssues[game + 1]
-              : '\n\n🏆 Event complete! The organizer will manually verify your `final-answer.txt` file.';
+              ? '\n\n🔓 **Game ' + (game + 1) + ' is now unlocked!**\n\n👉 [**Go to Game ' + (game + 1) + '**](https://github.com/' + owner + '/' + repo + '/issues/' + gameIssues[game + 1] + ')'
+              : '\n\n🏆 **Event complete!** The organizer will manually verify your `final-answer.txt` file.';
 
+            // Delete the participant comment FIRST.
+            await deleteSubmission();
+
+            // Then create the bot response. It remains visible.
             await github.rest.issues.createComment({
               owner, repo, issue_number: issue.number,
               body: '✅ Correct, @' + author + '! Game ' + game + ' is complete.\n\n' + marker + next
